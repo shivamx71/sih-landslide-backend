@@ -1,0 +1,47 @@
+id,name,latitude,longitude,rainfall_24h,rainfall_7d,soil_moisture,slope,elevation,historical_landslides
+1,South Sikkim (Sikkim),27.16,88.36,185.0,495.0,79.5,35.0,1750,14
+2,East Sikkim (Sikkim),27.33,88.60,182.5,486.0,78.2,36.5,1850,15
+3,Imphal West (Manipur),24.81,93.93,110.0,295.0,62.0,22.0,790,8
+4,Aizawl (Mizoram),23.72,92.71,145.0,390.0,69.0,31.0,1132,11
+5,Lawngtlai (Mizoram),22.52,92.89,140.0,375.0,67.0,28.0,850,9
+6,North District (Sikkim),27.50,88.55,195.0,520.0,82.0,38.0,2300,16
+7,Churachandpur (Manipur),24.33,93.67,125.0,335.0,64.0,27.0,920,8
+8,East Garo Hills (Meghalaya),25.60,90.58,195.0,510.0,76.0,24.0,600,7
+9,West Khasi Hills (Meghalaya),25.55,91.25,210.0,550.0,80.0,26.0,1200,9
+10,Ribhoi (Meghalaya),25.90,91.88,180.0,470.0,72.0,22.0,700,6
+11,Jaintia Hills (Meghalaya),25.45,92.20,230.0,610.0,84.0,27.0,1350,10
+12,Mamit (Mizoram),23.92,92.49,135.0,360.0,65.0,26.0,720,7
+13,Papum Pare (Arunachal Pradesh),27.15,93.60,160.0,420.0,70.0,26.0,800,8
+14,Tawang (Arunachal Pradesh),27.58,91.86,165.0,435.0,73.0,38.0,3048,12
+15,West Tripura (Tripura),23.83,91.28,55.0,145.0,44.0,14.0,35,2
+16,North Tripura (Tripura),24.15,92.15,65.0,170.0,48.0,16.0,60,3
+17,East Siang (Arunachal Pradesh),28.06,95.32,145.0,380.0,66.0,22.0,400,6
+18,Serchhip (Mizoram),23.31,92.85,130.0,345.0,63.0,29.0,1280,8
+19,North Cachar Hills (Assam),25.18,93.02,130.0,340.0,64.0,26.0,650,7
+20,Lower Subansiri (Arunachal Pradesh),27.60,93.80,150.0,395.0,68.0,30.0,1500,9
+21,West Kameng (Arunachal Pradesh),27.25,92.40,155.0,410.0,71.0,35.0,2200,11
+22,Phek (Nagaland),25.65,94.50,128.0,340.0,63.0,33.0,1600,9
+23,South Garo Hills (Meghalaya),25.30,90.62,190.0,495.0,75.0,23.0,550,6
+24,Changlang (Arunachal Pradesh),27.12,95.73,140.0,370.0,65.0,27.0,900,7
+25,Mon (Nagaland),26.75,95.10,125.0,330.0,61.0,27.0,1100,6
+26,Tuensang (Nagaland),26.28,94.83,130.0,345.0,64.0,31.0,1370,8
+27,Lower Dibang Valley (Arunachal Pradesh),28.15,95.85,150.0,395.0,69.0,29.0,1200,8
+28,Senapati (Manipur),25.26,94.01,135.0,355.0,65.0,31.0,1400,8
+29,Morigaon (Assam),26.25,92.34,45.0,120.0,39.0,12.0,60,1
+30,Tamenglong (Manipur),24.98,93.49,145.0,380.0,68.0,32.0,1260,9
+31,East Kameng (Arunachal Pradesh),27.30,93.00,160.0,420.0,71.0,32.0,1400,9
+32,Saiha (Mizoram),22.48,92.97,138.0,365.0,66.0,30.0,1050,8
+33,Upper Siang (Arunachal Pradesh),28.60,94.90,160.0,425.0,72.0,36.0,2100,11
+34,Mokokchung (Nagaland),26.32,94.52,122.0,320.0,61.0,29.0,1325,7
+35,Kohima (Nagaland),25.67,94.10,132.0,345.0,64.0,30.0,1444,8
+36,West Siang (Arunachal Pradesh),28.30,94.80,150.0,395.0,68.0,33.0,1600,9
+37,Dhalai (Tripura),23.85,91.90,75.0,195.0,52.0,18.0,150,4
+38,Ukhrul (Manipur),25.11,94.36,140.0,370.0,67.0,33.0,1660,9
+39,Kurung Kumey (Arunachal Pradesh),27.90,93.40,158.0,415.0,71.0,33.0,1700,10
+40,Tirap (Arunachal Pradesh),27.00,95.50,135.0,355.0,64.0,28.0,1100,7
+41,Nagaon (Assam),26.35,92.68,48.0,128.0,41.0,13.0,70,1
+42,Champhai (Mizoram),23.47,93.32,150.0,390.0,68.0,32.0,1678,9
+43,Upper Subansiri (Arunachal Pradesh),28.00,94.10,155.0,405.0,70.0,34.0,1800,10
+44,Chandel (Manipur),24.32,94.00,120.0,315.0,61.0,25.0,850,6
+45,Anjaw (Arunachal Pradesh),28.00,96.50,155.0,410.0,71.0,35.0,1900,10
+46,Dibang Valley (Arunachal Pradesh),28.80,95.80,165.0,435.0,74.0,37.0,2500,12
