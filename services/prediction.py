@@ -1,11 +1,12 @@
 import os
 import joblib
 import numpy as np
+import pandas as pd
 import warnings
 from typing import Dict, Any, List, Optional
 
-# Scikit-learn parallel warnings ko mute karo taaki Render CPU freeze na ho
-warnings.filterwarnings('ignore', category=UserWarning)
+# Scikit-learn aur joblib ki sabhi background warnings ko globally mute karo
+warnings.filterwarnings('ignore')
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_PATH = os.path.join(BASE_DIR, "models", "risk_model.pkl")
@@ -21,12 +22,14 @@ def load_ml_model():
         _MODEL_ATTEMPTED = True
         if os.path.exists(MODEL_PATH):
             try:
-                model = joblib.load(MODEL_PATH)
-                # CRITICAL: Free Render instance par joblib multiprocessing lock na ho isliye n_jobs=1
-                if hasattr(model, 'n_jobs'):
-                    model.n_jobs = 1
-                _CACHED_MODEL = model
-                print(">>> [ML Engine] risk_model.pkl loaded successfully with n_jobs=1!")
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    model = joblib.load(MODEL_PATH)
+                    # CRITICAL: Free Render instance par multiprocessing lock na ho isliye n_jobs=1
+                    if hasattr(model, 'n_jobs'):
+                        model.n_jobs = 1
+                    _CACHED_MODEL = model
+                    print(">>> [ML Engine] risk_model.pkl loaded successfully with n_jobs=1!")
             except Exception as e:
                 print(f">>> [ML Engine Warning] Fallback triggered: {e}")
     return _CACHED_MODEL
@@ -67,12 +70,23 @@ def predict_soil_risk(features: Dict[str, Any], seismic_active: bool = False) ->
     final_score = None
     model_name = "Integrated NER Soil Hazard Algorithm"
 
-    # 1. Real-time ML Inference
+    # 1. Real-time ML Inference (Zero-Warning Protected Execution)
     if model is not None:
         try:
-            feature_array = np.array([[r24, r7d, sm, slope, elev, hist]])
-            pred = model.predict(feature_array)
-            raw = float(pred[0]) if hasattr(pred, "__iter__") else float(pred)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                
+                # Agar model pandas column names expect kar raha hai:
+                if hasattr(model, "feature_names_in_"):
+                    feature_input = pd.DataFrame(
+                        [[r24, r7d, sm, slope, elev, hist]],
+                        columns=model.feature_names_in_
+                    )
+                else:
+                    feature_input = np.array([[r24, r7d, sm, slope, elev, hist]])
+
+                pred = model.predict(feature_input)
+                raw = float(pred[0]) if hasattr(pred, "__iter__") else float(pred)
             
             if raw <= 3.0:
                 score_map = {0: 20, 1: 45, 2: 68, 3: 88}
@@ -95,6 +109,7 @@ def predict_soil_risk(features: Dict[str, Any], seismic_active: bool = False) ->
         )
         final_score = int(min(max(score_val, 5), 98))
 
+    # Zone V Seismic Trigger Escalation
     if seismic_active:
         final_score = min(100, int(final_score * 1.25))
 
