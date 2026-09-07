@@ -7,15 +7,23 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 
 try:
-    from services.live_weather_service import get_live_environmental_telemetry, get_live_seismic_activity, get_wmo_weather_info
+    from services.live_weather_service import (
+        get_live_environmental_telemetry, 
+        get_live_seismic_activity, 
+        get_wmo_weather_info
+    )
 except ImportError:
-    from live_weather_service import get_live_environmental_telemetry, get_live_seismic_activity, get_wmo_weather_info
+    from live_weather_service import (
+        get_live_environmental_telemetry, 
+        get_live_seismic_activity, 
+        get_wmo_weather_info
+    )
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "soil_risk.db")
 CSV_PATH = os.path.join(BASE_DIR, "data", "locations.csv")
 
-# 10-Minute In-Memory Regional Cache (Zero latency, server stays super fast)
+# 10-Minute In-Memory Regional Cache (Fast & CPU light)
 _ALL_LOCATIONS_CACHE: Optional[List[Dict[str, Any]]] = None
 _LAST_BATCH_FETCH_TIME: float = 0.0
 CACHE_TTL = 600.0  # 10 Minutes
@@ -87,7 +95,7 @@ def init_db():
                         int(row['historical_landslides'].strip())
                     ))
             conn.commit()
-            print(">>> [Database] Baseline locations loaded!")
+            print(">>> [Database] Baseline locations seeded successfully!")
     finally:
         conn.close()
 
@@ -115,7 +123,7 @@ def get_all_locations_live() -> List[Dict[str, Any]]:
     if not baseline_rows:
         return []
 
-    # Open-Meteo Batch Query Construction: latitude=27.16,27.33,...&longitude=88.36,88.60,...
+    # Open-Meteo Batch Query
     lats = ",".join(str(r["latitude"]) for r in baseline_rows)
     lons = ",".join(str(r["longitude"]) for r in baseline_rows)
 
@@ -133,7 +141,6 @@ def get_all_locations_live() -> List[Dict[str, Any]]:
         resp = requests.get(batch_url, timeout=8)
         if resp.status_code == 200:
             batch_data = resp.json()
-            # If multiple locations, Open-Meteo returns a list of dictionaries
             if not isinstance(batch_data, list):
                 batch_data = [batch_data]
 
@@ -145,11 +152,9 @@ def get_all_locations_live() -> List[Dict[str, Any]]:
                 daily = telem.get("daily", {})
                 hourly = telem.get("hourly", {})
 
-                # Precipitation
                 daily_sums = [float(x) for x in daily.get("precipitation_sum", []) if x is not None]
                 rain_24h = daily_sums[0] if daily_sums else float(curr.get("precipitation", 0.0))
 
-                # Soil Moisture (0-28cm)
                 sm_surf = [float(x) for x in hourly.get("soil_moisture_0_to_1cm", []) if x is not None]
                 sm_root = [float(x) for x in hourly.get("soil_moisture_9_to_27cm", []) if x is not None]
                 val_surf = sm_surf[-1] if sm_surf else 0.25
@@ -182,7 +187,7 @@ def get_all_locations_live() -> List[Dict[str, Any]]:
     except Exception as e:
         print(f">>> [Batch Fetch Fallback] {e}")
 
-    # Deterministic fallback if internet dips
+    # Fallback if external API down
     for base in baseline_rows:
         merged = dict(base)
         pseudo_rain = round(12.0 + ((base["latitude"] * 7) % 35), 1)
@@ -208,15 +213,14 @@ def get_all_locations_live() -> List[Dict[str, Any]]:
 def get_location_by_id_live(loc_id: int) -> Optional[Dict[str, Any]]:
     all_locs = get_all_locations_live()
     for loc in all_locs:
-        if Number_match(loc["id"], loc_id):
-            return loc
+        try:
+            if int(loc["id"]) == int(loc_id):
+                return loc
+        except Exception:
+            if str(loc["id"]) == str(loc_id):
+                return loc
     return all_locs[0] if all_locs else None
 
-def Number_match(a, b):
-    try:
-        return int(a) == int(b)
-    except Exception:
-        return str(a) == str(b)
 
 def fetch_imd_rainfall(district_name: str, lat: Optional[float] = None, lon: Optional[float] = None) -> Dict[str, Any]:
     telemetry = get_live_environmental_telemetry(lat or 26.14, lon or 91.73)
@@ -230,6 +234,7 @@ def fetch_imd_rainfall(district_name: str, lat: Optional[float] = None, lon: Opt
         "status": "Active Radar Monitoring",
         "source": "Satellite Telemetry & Radar Pipeline"
     }
+
 
 def get_dashboard_summary_kpi() -> Dict[str, Any]:
     locs = get_all_locations_live()
@@ -251,3 +256,47 @@ def get_dashboard_summary_kpi() -> Dict[str, Any]:
         "live_status": "24x7 REAL-TIME RADAR CONNECTED",
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S IST")
     }
+
+
+# ---------------- ALERT & REPORT HELPER FUNCTIONS (REQUIRED BY ROUTES) ----------------
+def add_alert(location: str, risk_score: int, severity: str, message: str):
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO alerts (location, risk_score, severity, message)
+            VALUES (?, ?, ?, ?)
+        ''', (location, risk_score, severity, message))
+        conn.commit()
+    finally:
+        conn.close()
+
+def get_recent_alerts(limit: int = 10) -> List[Dict[str, Any]]:
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM alerts ORDER BY timestamp DESC LIMIT ?", (limit,))
+        return [dict(row) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+def add_report(lat: float, lon: float, report_type: str, desc: str, photo: Optional[str] = None):
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO reports (latitude, longitude, report_type, description, photo)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (lat, lon, report_type, desc, photo))
+        conn.commit()
+    finally:
+        conn.close()
+
+def get_all_reports() -> List[Dict[str, Any]]:
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM reports ORDER BY created_at DESC")
+        return [dict(row) for row in cursor.fetchall()]
+    finally:
+        conn.close()
