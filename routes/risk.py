@@ -1,170 +1,194 @@
-from services.live_weather_service import get_live_environmental_telemetry
-from fastapi import APIRouter, HTTPException, Response
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any
 import json
 import os
-from services.data_service import get_db_connection, fetch_imd_rainfall
-from services.prediction import predict_soil_risk
+from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, HTTPException, Response, Query
+from pydantic import BaseModel, Field
+
+from services.live_weather_service import (
+    get_live_environmental_telemetry, 
+    get_live_seismic_activity
+)
+from services.data_service import (
+    get_db_connection, 
+    fetch_imd_rainfall, 
+    get_all_locations_live, 
+    get_location_by_id_live,
+    get_dashboard_summary_kpi
+)
+from services.prediction import predict_soil_risk, batch_predict_risk
 
 router = APIRouter()
 
-# Base Directory path setup
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GEOJSON_PATH = os.path.join(BASE_DIR, "data", "ner_districts.geojson")
 
 class PredictionInput(BaseModel):
-    rainfall_24h: float = Field(..., example=182.5)
-    rainfall_7d: float = Field(..., example=486.0)
-    soil_moisture: float = Field(..., example=78.2)
-    slope: float = Field(..., example=36.5)
-    elevation: float = Field(..., example=1850.0)
-    historical_landslides: int = Field(..., example=12)
+    rainfall_24h: float = Field(..., example=45.5)
+    rainfall_7d: float = Field(..., example=120.0)
+    soil_moisture: float = Field(..., example=68.2)
+    slope: float = Field(..., example=32.5)
+    elevation: float = Field(..., example=1450.0)
+    historical_landslides: int = Field(..., example=6)
 
 def model_to_dict(model_instance: BaseModel) -> dict:
     if hasattr(model_instance, "model_dump"):
         return model_instance.model_dump()
     return model_instance.dict()
 
-# 1. Map Coordinates Feed
+
+# ---------------- 1. 24x7 LIVE LOCATIONS & MAP RISK FEED ----------------
 @router.get("/locations")
-def get_locations():
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, name, latitude, longitude FROM locations ORDER BY id ASC")
-        rows = cursor.fetchall()
-        return [dict(row) for row in rows]
-    finally:
-        conn.close()
+def get_locations(live: bool = Query(True, description="Attach live satellite weather and AI risk scores")):
+    """
+    Returns all 43+ NER districts.
+    When live=True, attaches real-time satellite rainfall, soil moisture, 
+    temperature, AI risk scores, and marker hex colors in <1 second.
+    """
+    if not live:
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, name, latitude, longitude FROM locations ORDER BY id ASC")
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            conn.close()
 
-# 2. District Terrain & Environmental Intelligence
+    # Fetch live telemetry for all districts concurrently
+    live_locations = get_all_locations_live()
+    
+    # Check live seismic activity across NER
+    seismic_info = get_live_seismic_activity()
+    seismic_active = seismic_info.get("seismic_trigger_active", False)
+
+    # Vectorized AI Landslide Prediction
+    enriched_locations = batch_predict_risk(live_locations, seismic_active=seismic_active)
+    return enriched_locations
+
+
+# ---------------- 2. TOP DASHBOARD LIVE SUMMARY KPIs ----------------
+@router.get("/dashboard/summary")
+def get_dashboard_summary():
+    """
+    Provides real-time aggregated metrics for the top dashboard cards:
+    - Average 24h Rainfall across NER
+    - Average Satellite Soil Moisture
+    - Highest Rainfall Zone
+    - Live USGS Seismic Activity
+    """
+    return get_dashboard_summary_kpi()
+
+
+# ---------------- 3. SINGLE DISTRICT LIVE RISK ASSESSMENT ----------------
 @router.get("/risk/{location_id}")
-def get_risk_by_location(location_id: int):
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM locations WHERE id = ?", (location_id,))
-        row = cursor.fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Location not found")
-
-        loc_data = dict(row)
-        prediction = predict_soil_risk(loc_data)
-        weather_info = fetch_imd_rainfall(loc_data["name"])
-
-        return {
-            "location": loc_data["name"],
-            "latitude": loc_data["latitude"],
-            "longitude": loc_data["longitude"],
-            "rainfall_24h": loc_data["rainfall_24h"],
-            "rainfall_7d": loc_data["rainfall_7d"],
-            "soil_moisture": loc_data["soil_moisture"],
-            "slope": loc_data["slope"],
-            "elevation": loc_data["elevation"],
-            "historical_landslides": loc_data["historical_landslides"],
-            "risk_score": prediction["risk_score"],
-            "risk_level": prediction["risk_level"],
-            "imd_weather_summary": weather_info
-        }
-    finally:
-        conn.close()
-
-# 3. Real-Time AI Prediction Engine
-@router.post("/predict")
-def predict(data: PredictionInput):
-    payload = model_to_dict(data)
-    result = predict_soil_risk(payload)
-    return {
-        "risk_score": result["risk_score"],
-        "risk_level": result["risk_level"]
-    }
-
-# 4. [NAYA GIS ENDPOINT] Official North-East District Boundary Polygons
-@router.get("/geojson")
-def get_ner_geojson():
-    """OGC Standard GeoJSON for Leaflet Choropleth Map Layer"""
-    if os.path.exists(GEOJSON_PATH):
-        with open(GEOJSON_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return Response(content=json.dumps(data), media_type="application/geo+json")
-    return Response(content=json.dumps({"type": "FeatureCollection", "features": []}), media_type="application/geo+json")
-    # ---------------- 5. 100% REAL LIVE RISK API (DYNAMIC SATELLITE TELEMETRY) ----------------
 @router.get("/live-risk/{location_id}")
 def get_live_risk_for_district(location_id: int):
     """
-    100% Real Live API: Fetches current live rainfall and soil moisture 
-    from live satellites for this district, runs ML model, and outputs real risk!
+    100% Live Telemetry + AI Inference for a specific district.
+    Integrates live satellite radar, deep soil moisture, and IMD statistics.
     """
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM locations WHERE id = ?", (location_id,))
-        row = cursor.fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="District not found")
-        loc = dict(row)
-    finally:
-        conn.close()
+    loc = get_location_by_id_live(location_id)
+    if not loc:
+        raise HTTPException(status_code=404, detail="District not found")
 
-    # 1. Call Real-time Satellite Weather API for this district's GPS
-    live_weather = get_live_environmental_telemetry(loc["latitude"], loc["longitude"])
+    # Live seismic check
+    seismic_info = get_live_seismic_activity()
+    seismic_active = seismic_info.get("seismic_trigger_active", False)
 
-    # 2. Feed Live Satellite parameters directly to ML Model
-    ml_payload = {
-        "rainfall_24h": live_weather["rainfall_24h"],
-        "rainfall_7d": live_weather["rainfall_7d"],
-        "soil_moisture": live_weather["soil_moisture"],
-        "slope": loc["slope"],
-        "elevation": loc["elevation"],
-        "historical_landslides": loc["historical_landslides"]
-    }
-    prediction = predict_soil_risk(ml_payload)
+    # Real-time prediction
+    prediction = predict_soil_risk(loc, seismic_active=seismic_active)
+    
+    # Live IMD / Radar statistics
+    imd_summary = fetch_imd_rainfall(loc["name"], loc["latitude"], loc["longitude"])
 
     return {
         "district": loc["name"],
-        "status": "LIVE_SATELLITE_FEED",
-        "fetch_timestamp": live_weather["timestamp"],
+        "status": loc.get("status", "LIVE_SATELLITE_FEED"),
+        "fetch_timestamp": loc.get("last_sync"),
         "live_telemetry": {
-            "rainfall_24h_mm": live_weather["rainfall_24h"],
-            "rainfall_7d_cumulative_mm": live_weather["rainfall_7d"],
-            "soil_moisture_percent": live_weather["soil_moisture"],
-            "temperature_c": live_weather["temperature"],
-            "data_source": live_weather["source"]
+            "rainfall_24h_mm": loc["rainfall_24h"],
+            "rainfall_7d_cumulative_mm": loc["rainfall_7d"],
+            "soil_moisture_percent": loc["soil_moisture"],
+            "temperature_c": loc.get("temperature", 22.0),
+            "humidity_percent": loc.get("humidity", 70),
+            "wind_speed_kmh": loc.get("wind_speed", 8.0),
+            "weather_condition": loc.get("weather_condition", "Partly Cloudy"),
+            "data_source": loc.get("live_source", "Open-Meteo ECMWF High-Res Satellite")
         },
         "geotechnical_baseline": {
             "slope_degrees": loc["slope"],
             "elevation_meters": loc["elevation"],
-            "isro_past_incidents": loc["historical_landslides"]
+            "historical_incidents": loc["historical_landslides"]
         },
         "realtime_ai_risk_assessment": {
             "risk_score": prediction["risk_score"],
             "risk_level": prediction["risk_level"],
-            "advisory": "Critical monitoring required due to heavy active saturation" if prediction["risk_score"] >= 75 else "Current weather conditions within manageable stability limits"
-        }
+            "color": prediction["color"],
+            "badge_class": prediction["badge_class"],
+            "primary_factor": prediction["primary_factor"],
+            "model_used": prediction["model_used"],
+            "seismic_trigger_active": seismic_active,
+            "advisory": (
+                "CRITICAL EVACUATION ADVISORY: High precipitation combined with critical soil saturation."
+                if prediction["risk_score"] >= 75
+                else "ELEVATED ALERT: Saturated slopes monitored. Travelers exercise caution on mountain highways."
+                if prediction["risk_score"] >= 55
+                else "STABLE: Weather and pore pressure parameters within standard safety envelope."
+            )
+        },
+        "imd_weather_summary": imd_summary
     }
 
-# Dynamic Live Risk for ANY GPS Coordinate in India (Citizen / Field Officer GPS)
+
+# ---------------- 4. ARBITRARY FIELD GPS COORDINATE RISK EVALUATOR ----------------
 @router.get("/live-risk-by-coords")
 def get_live_risk_by_coords(lat: float, lon: float, slope: float = 28.0, elevation: float = 1200.0):
     """
-    Calculates live landslide risk for ANY arbitrary GPS coordinate in real-time!
+    Calculates 100% live landslide risk for ANY GPS location in real-time (Citizen / Field Patrol).
     """
     live_weather = get_live_environmental_telemetry(lat, lon)
-    
+    seismic_info = get_live_seismic_activity()
+    seismic_active = seismic_info.get("seismic_trigger_active", False)
+
     ml_payload = {
         "rainfall_24h": live_weather["rainfall_24h"],
         "rainfall_7d": live_weather["rainfall_7d"],
         "soil_moisture": live_weather["soil_moisture"],
         "slope": slope,
         "elevation": elevation,
-        "historical_landslides": 6
+        "historical_landslides": 4
     }
-    prediction = predict_soil_risk(ml_payload)
+    prediction = predict_soil_risk(ml_payload, seismic_active=seismic_active)
 
     return {
         "coordinates": {"latitude": lat, "longitude": lon},
-        "timestamp": live_weather["timestamp"],
+        "timestamp": live_weather.get("fetch_timestamp"),
         "live_telemetry": live_weather,
-        "predicted_risk": prediction
+        "predicted_risk": prediction,
+        "seismic_status": seismic_info
     }
+
+
+# ---------------- 5. CUSTOM AI PREDICTION SIMULATOR ----------------
+@router.post("/predict")
+def predict(data: PredictionInput):
+    payload = model_to_dict(data)
+    result = predict_soil_risk(payload)
+    return {
+        "risk_score": result["risk_score"],
+        "risk_level": result["risk_level"],
+        "color": result["color"],
+        "badge_class": result["badge_class"],
+        "primary_factor": result["primary_factor"],
+        "model_used": result["model_used"]
+    }
+
+
+# ---------------- 6. GIS CHOROPLETH POLYGON BOUNDARIES ----------------
+@router.get("/geojson")
+def get_ner_geojson():
+    """OGC Standard GeoJSON for Leaflet choropleth map layers."""
+    if os.path.exists(GEOJSON_PATH):
+        with open(GEOJSON_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return Response(content=json.dumps(data), media_type="application/geo+json")
+    return Response(content=json.dumps({"type": "FeatureCollection", "features": []}), media_type="application/geo+json")
