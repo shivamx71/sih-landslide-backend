@@ -1,3 +1,5 @@
+import warnings
+warnings.filterwarnings("ignore")
 from datetime import datetime
 from contextlib import asynccontextmanager
 
